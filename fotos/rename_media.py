@@ -5,6 +5,9 @@ import re
 import argparse
 from PIL import Image
 from PIL.ExifTags import TAGS
+from tinytag import TinyTag
+
+import cv2
 
 # --- Configurações ---
 IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.heic', '.tiff')
@@ -22,6 +25,45 @@ def get_exif_datetime(file_path):
     except Exception:
         pass
     return None
+
+def get_camera_model(file_path):
+    """Extrai e sanitiza o modelo da câmera dos dados EXIF."""
+    try:
+        with Image.open(file_path) as img:
+            exif_data = img._getexif()
+            if exif_data:
+                make = exif_data.get(271, '')  # Make
+                model = exif_data.get(272, '') # Model
+                camera_name = f"{make.strip()} {model.strip()}".strip()
+                if camera_name:
+                    return re.sub(r'[^\w_.-]', '_', camera_name).replace('__', '_')
+    except Exception:
+        pass
+    return None
+
+def get_video_info(file_path):
+    """Extrai framerate, resolução e modelo da câmera de um arquivo de vídeo."""
+    video_info_str = None
+    camera_model = None
+    try:
+        # Usa OpenCV para info de vídeo
+        cap = cv2.VideoCapture(file_path)
+        if cap.isOpened():
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            if fps > 0 and width > 0 and height > 0:
+                video_info_str = f"{round(fps)}fps_{width}x{height}"
+
+        # Usa TinyTag para metadados adicionais (tentar obter a câmera)
+        tag = TinyTag.get(file_path)
+        if tag and tag.artist:
+             camera_model = re.sub(r'[^\w_.-]', '_', tag.artist).replace('__', '_')
+
+    except Exception:
+        pass
+    return video_info_str, camera_model
 
 def get_file_modification_datetime(file_path):
     """Obtém a data e hora da última modificação de um arquivo."""
@@ -61,12 +103,17 @@ def process_directory(root_path):
             full_path = os.path.join(dirpath, filename)
             
             timestamp = None
+            camera_model = None
+            video_info = None
+
             if file_ext in IMAGE_EXTENSIONS:
                 timestamp = get_exif_datetime(full_path)
+                camera_model = get_camera_model(full_path)
                 if not timestamp:
                     timestamp = get_file_modification_datetime(full_path)
             elif file_ext in VIDEO_EXTENSIONS:
                 timestamp = get_file_modification_datetime(full_path)
+                video_info, camera_model = get_video_info(full_path)
             else:
                 continue
 
@@ -75,17 +122,23 @@ def process_directory(root_path):
                 continue
 
             date_str = timestamp.strftime('%Y-%m-%d_%H-%M-%S')
-            new_filename = f"{date_str}_{event_name}{file_ext}"
-            new_full_path = os.path.join(dirpath, new_filename)
+            
+            base_new_name = f"{date_str}_{event_name}"
+            if camera_model:
+                base_new_name += f"_{camera_model}"
+            if video_info:
+                base_new_name += f"_{video_info}"
+
+            counter = 0
+            while True:
+                new_filename = f"{base_new_name}_{counter:02d}{file_ext}"
+                new_full_path = os.path.join(dirpath, new_filename)
+                if not os.path.exists(new_full_path):
+                    break
+                counter += 1
 
             if full_path == new_full_path:
                 continue
-
-            counter = 1
-            while os.path.exists(new_full_path):
-                new_filename = f"{date_str}_{event_name}_{counter}{file_ext}"
-                new_full_path = os.path.join(dirpath, new_filename)
-                counter += 1
             
             try:
                 os.rename(full_path, new_full_path)
