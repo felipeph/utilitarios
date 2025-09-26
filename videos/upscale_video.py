@@ -39,15 +39,31 @@ def upscale_video(input_video, resolution, bitrate):
     run_ffmpeg_command(command, f"Convertendo para {resolution} ({output_video})")
 
 def main():
-    parser = argparse.ArgumentParser(description="Faz o upscale de um vídeo.")
-    parser.add_argument('--input', required=True, help='Caminho para o vídeo de entrada.')
+    parser = argparse.ArgumentParser(description="Faz o upscale de um vídeo ou de uma lista de vídeos contida em um arquivo .txt.")
+    parser.add_argument('--input', required=True, help='Caminho para o vídeo de entrada ou para o arquivo .txt com a lista de vídeos.')
     parser.add_argument('--resolution', type=str, default='3840:2160', help='Resolução de saída (ex: 3840:2160 para 4K). Padrão: 3840:2160')
     parser.add_argument('--bitrate', type=str, default='60M', help='Bitrate do vídeo (ex: 60M). Padrão: 60M')
     args = parser.parse_args()
 
+    videos = []
     try:
-        upscale_video(args.input, args.resolution, args.bitrate)
+        # Verifica se o input é um arquivo de lista .txt ou um único vídeo
+        if args.input.lower().endswith('.txt'):
+            with open(args.input, 'r') as f:
+                videos = [line.strip() for line in f if line.strip()]
+        else:
+            videos = [args.input]
+
+        for video_path in videos:
+            if os.path.exists(video_path):
+                print(f"Processando vídeo: {video_path}")
+                upscale_video(video_path, args.resolution, args.bitrate)
+            else:
+                print(f"AVISO: Arquivo não encontrado, pulando: {video_path}")
+
         print(f"\n--- Processo Finalizado! ---")
+    except FileNotFoundError:
+        print(f"ERRO: O arquivo de entrada '{args.input}' não foi encontrado.")
     except Exception as e:
         print(f"\nOcorreu um erro durante o processo: {e}")
 
